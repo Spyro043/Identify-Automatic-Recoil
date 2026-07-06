@@ -1,4 +1,7 @@
 # Automatic game recoil identification
+# 目前只适配了KMBOXNET,后续会适配马克盒子，由于每个人分辨率以及后坐力不同，建议自己配置，后坐力录制程序以及后坐力反推轨迹程序后续会上传到仓库。
+# 理论上适配所有的游戏，但是由于PUBG，以及三角洲为非实时识别游戏，所以后续我会更新一个新版，增加缓存识别功能，来适配PUBG以及三角洲。
+# BMP可以自己截图，后续我会更新，来实现软件内一键截图，因为目前的方式太麻烦了。软件内可以设置识别区域，不知道自己像素点的，可以看这个网站：https://screencoordinates.com/zh/#:~:text=%E5%AE%9E%E6%97%B6%E8%BF%BD%E8%B8%AA%E9%BC%A0%E6%A0%87%20X%2FY%20%E5%B1%8F%E5%B9%95%E5%9D%90%E6%A0%87%E5%B9%B6%E7%B2%BE%E7%A1%AE%E6%B5%8B%E9%87%8F%E5%83%8F%E7%B4%A0%E4%BD%8D%E7%BD%AE%E3%80%82%20%E5%85%8D%E8%B4%B9%E5%9C%A8%E7%BA%BF%E5%B7%A5%E5%85%B7%EF%BC%8C%E6%97%A0%E9%9C%80%E5%AE%89%E8%A3%85%E3%80%82%20%F0%9F%92%A1%20%E6%8F%90%E7%A4%BA%EF%BC%9A%E5%9C%A8%E6%A1%8C%E9%9D%A2%E6%8C%89%20PrtSc%20%E6%88%AA%E5%9B%BE%EF%BC%8C%E7%84%B6%E5%90%8E%E5%9C%A8%E6%AD%A4%E5%A4%84,%E5%AE%9E%E6%97%B6%E8%BF%BD%E8%B8%AA%20%E9%BC%A0%E6%A0%87%E4%BD%8D%E7%BD%AE%20%E5%B9%B6%E6%B5%8B%E9%87%8F%20%E7%B2%BE%E7%A1%AE%E5%83%8F%E7%B4%A0%E4%BD%8D%E7%BD%AE%E3%80%82%20%E5%89%8D%E7%AB%AF%E5%BC%80%E5%8F%91%E4%BA%BA%E5%91%98%E3%80%81UI%2FUX%20%E8%AE%BE%E8%AE%A1%E5%B8%88%E5%92%8C%20QA%20%E6%B5%8B%E8%AF%95%E4%BA%BA%E5%91%98%E7%9A%84%E5%BF%85%E5%A4%87%E5%B7%A5%E5%85%B7%E3%80%82
 
 用于游戏自动压枪：
 
