@@ -1,6 +1,6 @@
 # Office Logo Drag
 
-用于日常办公自动化：
+用于游戏自动压枪：
 
 1. 使用 DXGI Desktop Duplication 截图识别指定屏幕区域。
 2. 识别 `CONFIG` 里的 `.bmp` 图片。
