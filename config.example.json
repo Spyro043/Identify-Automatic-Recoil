@@ -1,0 +1,27 @@
+{
+  "screen_region": {
+    "anchor": "bottom_right",
+    "width": 420,
+    "height": 260,
+    "margin_right": 0,
+    "margin_bottom": 0
+  },
+  "match_threshold": 0.86,
+  "scan_interval": 0.2,
+  "lost_after_seconds": 0.8,
+  "left_poll_interval": 0.005,
+  "kmboxnet": {
+    "ip": "192.168.2.188",
+    "port": "8338",
+    "mac": "AA:BB:CC:DD:EE:FF",
+    "monitor_port": "8888"
+  },
+  "tasks": [
+    {
+      "id": "demo-company",
+      "name": "示例公司",
+      "template": "templates/demo-company.png",
+      "action": "actions/demo-company.json"
+    }
+  ]
+}
