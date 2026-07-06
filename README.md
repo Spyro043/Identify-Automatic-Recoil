@@ -1,4 +1,4 @@
-# Office Logo Drag
+# Automatic game recoil identification
 
 用于游戏自动压枪：
 
