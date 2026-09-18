@@ -12,6 +12,7 @@ from typing import Any, Callable
 import cv2
 import mss
 import numpy as np
+import vector_compat
 
 try:
     import dxcam
@@ -35,6 +36,10 @@ def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+def bundle_dir() -> Path:
+    return Path(getattr(sys, "_MEIPASS", app_dir()))
 
 
 def tune_process_for_capture() -> None:
@@ -159,6 +164,67 @@ class MakcuMouse:
             self.serial = None
 
 
+class DdMouse:
+    def __init__(self, dll_path: str) -> None:
+        self.dll_path = dll_path
+        self.dll: Any | None = None
+
+    def connect(self) -> None:
+        global _DD_DLL, _DD_INITIALIZED
+        path = Path(self.dll_path).expanduser()
+        if not path.is_file():
+            raise FileNotFoundError(f"DD DLL 不存在：{path}")
+        if _DD_DLL is None:
+            _DD_DLL = ctypes.WinDLL(str(path.resolve()))
+            _DD_DLL.DD_btn.argtypes = [ctypes.c_int]
+            _DD_DLL.DD_btn.restype = ctypes.c_int
+            _DD_DLL.DD_movR.argtypes = [ctypes.c_int, ctypes.c_int]
+            _DD_DLL.DD_movR.restype = ctypes.c_int
+        self.dll = _DD_DLL
+        if not _DD_INITIALIZED and self.dll.DD_btn(0) != 1:
+            raise RuntimeError("DD 初始化失败。请检查驱动和授权状态。")
+        _DD_INITIALIZED = True
+
+    def right_down(self) -> None:
+        pass
+
+    def right_up(self) -> None:
+        pass
+
+    def move_relative(self, dx: int, dy: int) -> None:
+        if dx or dy:
+            if self.dll is None:
+                raise RuntimeError("DD 尚未连接")
+            self.dll.DD_movR(int(dx), int(dy))
+
+    def is_left_down(self) -> bool:
+        return is_left_down()
+
+    def close(self) -> None:
+        self.dll = None
+
+
+_DD_DLL = None
+_DD_INITIALIZED = False
+
+
+def dd_loaded() -> bool:
+    return _DD_DLL is not None
+
+
+def make_mouse(settings: dict[str, Any]) -> KmboxNetMouse | MakcuMouse | DdMouse:
+    device = str(settings["device"]).upper()
+    if device == "MAKCU":
+        return MakcuMouse(str(settings["makcu_port"]), int(settings["makcu_baudrate"]))
+    if device == "KMBOXNET":
+        return KmboxNetMouse(str(settings["ip"]), str(settings["port"]), str(settings["uid"]))
+    if device == "DD":
+        bundled = bundle_dir() / "dd" / "dd63330.dll"
+        path = bundled if bundled.is_file() else Path(str(settings.get("dd_dll_path") or ""))
+        return DdMouse(str(path))
+    raise ValueError("设备类型应为 KMBOXNET、MAKCU 或 DD。")
+
+
 class Settings:
     def __init__(self, config_dir: Path) -> None:
         self.config_dir = config_dir
@@ -170,6 +236,7 @@ class Settings:
             "port": "8338",
             "makcu_port": "COM3",
             "makcu_baudrate": "115200",
+            "dd_dll_path": "",
             "threshold": 0.86,
             "region_left": 1518,
             "region_top": 926,
@@ -180,6 +247,7 @@ class Settings:
             "tick_ms": 10,
             "scale": 1.0,
             "sensitivity": 1.0,
+            "match_mode": "original",
         }
 
     def load(self) -> dict[str, Any]:
@@ -203,7 +271,7 @@ class OfficeLogoDragEngine:
         self.settings = settings
         self.log = logger
         self.stop_event = threading.Event()
-        self.mouse: DryRunMouse | KmboxNetMouse | MakcuMouse | None = None
+        self.mouse: DryRunMouse | KmboxNetMouse | MakcuMouse | DdMouse | None = None
         self.trajectories: list[dict[str, Any]] = []
         self.templates: list[Template] = []
 
@@ -218,20 +286,18 @@ class OfficeLogoDragEngine:
         self.trajectories = load_trajectories(self.config_dir)
         if not execute:
             self.mouse = DryRunMouse()
-        elif str(self.settings["device"]).upper() == "MAKCU":
-            self.mouse = MakcuMouse(str(self.settings["makcu_port"]), int(self.settings["makcu_baudrate"]))
-        elif str(self.settings["device"]).upper() == "KMBOXNET":
-            self.mouse = KmboxNetMouse(ip=str(self.settings["ip"]), port=str(self.settings["port"]), uid=str(self.settings["uid"]))
         else:
-            raise ValueError("设备类型应填写 KMBOXNET 或 MAKCU。")
+            self.mouse = make_mouse(self.settings)
         self.mouse.connect()
         if execute:
             self.log("DEVICE|CONNECTED")
+        self.templates = [t for t in self.templates if (p := find_trajectory(self.trajectories, t.key)) and p.get("enabled", True)]
         self.log(f"已加载 {len(self.templates)} 张识别图片，{len(self.trajectories)} 条轨迹。")
         self.status("已启动，等待识别右下角 Logo")
 
         active_key: str | None = None
         active_steps: list[tuple[int, int, float]] = []
+        active_trajectory: dict[str, Any] | None = None
         last_seen = 0.0
         ready_reported = False
         try:
@@ -239,7 +305,7 @@ class OfficeLogoDragEngine:
                 self.log(f"截图后端：{capture.backend_name}")
                 while not self.stop_event.is_set():
                     screen_gray = capture.grab_gray()
-                    match = find_best_match(screen_gray, self.templates)
+                    match = find_best_match(screen_gray, self.templates, self.settings.get("match_mode") == "vector")
                     now = time.perf_counter()
                     threshold = float(self.settings["threshold"])
 
@@ -252,10 +318,12 @@ class OfficeLogoDragEngine:
                                 self.status(f"识别到 {match.template.path.name}，缺少同名轨迹")
                                 active_key = None
                                 active_steps = []
+                                active_trajectory = None
                                 self.mouse.right_up()
                             else:
                                 active_key = match.template.key
-                                active_steps = build_steps(trajectory, self.settings)
+                                active_trajectory = trajectory
+                                active_steps = [(0, 0, .01)] if trajectory.get("engine") == "vector_legacy" else build_steps(trajectory, self.settings)
                                 ready_reported = False
                                 self.log(f"识别到 {match.template.path.name}，匹配分数 {match.score:.3f}，已读取对应轨迹。")
                                 self.status(f"已识别 {match.template.path.name}，请按住右键进入待激活")
@@ -264,6 +332,7 @@ class OfficeLogoDragEngine:
                         self.status("Logo 消失，等待重新识别")
                         active_key = None
                         active_steps = []
+                        active_trajectory = None
                         ready_reported = False
 
                     if active_key and active_steps and is_right_down():
@@ -278,7 +347,10 @@ class OfficeLogoDragEngine:
                     if active_key and active_steps and is_right_down() and is_left_down():
                         self.log(f"检测到左键按住，正在执行轨迹：{active_key}")
                         self.status(f"左键已按住，轨迹执行中：{active_key}")
-                        play_while_buttons_down(self.mouse, active_steps, self.stop_event)
+                        if active_trajectory and active_trajectory.get("engine") == "vector_legacy":
+                            vector_compat.play(self.mouse, active_trajectory, self.settings, self.stop_event, lambda: is_right_down() and is_left_down())
+                        else:
+                            play_while_buttons_down(self.mouse, active_steps, self.stop_event)
                         self.log("左键已松开，轨迹停止。")
                         self.status(f"轨迹停止，右键按住时可再次按左键执行：{active_key}")
 
@@ -292,7 +364,8 @@ def load_templates(config_dir: Path) -> list[Template]:
     config_dir.mkdir(parents=True, exist_ok=True)
     templates: list[Template] = []
     for path in sorted(config_dir.glob("*.bmp")):
-        image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        raw = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+        image = vector_compat.gray(raw) if raw is not None else None
         if image is not None:
             templates.append(Template(key=path.stem, path=path, image_gray=image))
     if not templates:
@@ -302,7 +375,8 @@ def load_templates(config_dir: Path) -> list[Template]:
 
 def load_trajectories(config_dir: Path) -> list[dict[str, Any]]:
     trajectories: list[dict[str, Any]] = []
-    for path in sorted(config_dir.glob("*.json")):
+    paths = sorted(config_dir.glob("*.json"), key=lambda p: (p.name.lower() != "profiles.json", p.name.lower()))
+    for path in paths:
         if path.name.lower() == "settings.json":
             continue
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -423,7 +497,7 @@ class ScreenCapture:
             frame = self._wait_for_frame(timeout_seconds=0.5)
         if frame is None:
             raise RuntimeError("DXGI 重启后仍没有返回画面帧。")
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return vector_compat.gray(frame) if self.settings.get("match_mode") == "vector" else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
 def capture_bottom_right(sct: mss.mss, settings: dict[str, Any]) -> np.ndarray:
@@ -436,27 +510,32 @@ def capture_bottom_right(sct: mss.mss, settings: dict[str, Any]) -> np.ndarray:
     return cv2.cvtColor(np.asarray(shot), cv2.COLOR_BGRA2GRAY)
 
 
-def find_best_match(screen_gray: np.ndarray, templates: list[Template]) -> MatchResult | None:
+def find_best_match(screen_gray: np.ndarray, templates: list[Template], vector_mode: bool = False) -> MatchResult | None:
     best: MatchResult | None = None
     for template in templates:
         th, tw = template.image_gray.shape[:2]
         sh, sw = screen_gray.shape[:2]
-        if th > sh or tw > sw:
+        if not vector_mode and (th > sh or tw > sw):
             continue
-        result = cv2.matchTemplate(screen_gray, template.image_gray, cv2.TM_CCOEFF_NORMED)
-        _, score, _, location = cv2.minMaxLoc(result)
+        if vector_mode:
+            score, location = vector_compat.score(screen_gray, template.image_gray), (0, 0)
+        else:
+            result = cv2.matchTemplate(screen_gray, template.image_gray, cv2.TM_CCOEFF_NORMED)
+            _, score, _, location = cv2.minMaxLoc(result)
         if best is None or score > best.score:
             best = MatchResult(template=template, score=float(score), location=location)
     return best
 
 
 def build_steps(trajectory: dict[str, Any], settings: dict[str, Any]) -> list[tuple[int, int, float]]:
-    sensitivity = float(settings.get("sensitivity", 1.0))
+    sensitivity = float(settings.get("sensitivity", 1.0)) * float(trajectory.get("power", 100)) / 100
+    x_power = sensitivity * float(trajectory.get("x_power", 100)) / 100
+    y_power = sensitivity * float(trajectory.get("y_power", 100)) / 100
     if isinstance(trajectory.get("path"), list):
         return [
             (
-                int(round(float(step.get("dx", step.get("x", 0))) * sensitivity)),
-                int(round(float(step.get("dy", step.get("y", 0))) * sensitivity)),
+                int(round(float(step.get("dx", step.get("x", 0))) * x_power)),
+                int(round(float(step.get("dy", step.get("y", 0))) * y_power)),
                 float(step.get("delay", 0.01)),
             )
             for step in trajectory["path"]
@@ -483,7 +562,7 @@ def build_steps(trajectory: dict[str, Any], settings: dict[str, Any]) -> list[tu
         carry_y = raw_dy - dy
         previous_x = x
         previous_y = y
-        steps.append((int(round(dx * sensitivity)), int(round(dy * sensitivity)), tick))
+        steps.append((int(round(dx * x_power)), int(round(dy * y_power)), tick))
     return steps
 
 
@@ -516,7 +595,7 @@ def pattern_at(trajectory: dict[str, Any], seconds: float, scale: float) -> tupl
     return x * scale, y * scale
 
 
-def play_while_buttons_down(mouse: KmboxNetMouse | MakcuMouse | DryRunMouse, steps: list[tuple[int, int, float]], stop_event: threading.Event) -> None:
+def play_while_buttons_down(mouse: KmboxNetMouse | MakcuMouse | DdMouse | DryRunMouse, steps: list[tuple[int, int, float]], stop_event: threading.Event) -> None:
     index = 0
     while not stop_event.is_set() and is_right_down() and is_left_down():
         dx, dy, delay = steps[index]
@@ -573,6 +652,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nogui", action="store_true", help="run without UI")
     parser.add_argument("--execute", action="store_true", help="connect to configured device in nogui mode")
+    parser.add_argument("--driver", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -582,12 +662,14 @@ def main() -> None:
     if args.nogui:
         config_dir = app_dir() / "CONFIG"
         settings = Settings(config_dir).load()
+        if args.execute and settings["device"] == "DD" and not args.driver:
+            raise RuntimeError("命令行使用 DD 须显式添加 --driver")
         engine = OfficeLogoDragEngine(config_dir, settings, print)
         engine.run(args.execute)
     else:
-        from ui import App
+        from webui import App
 
-        App(sys.modules[__name__]).run()
+        App(sys.modules[__name__], startup_driver=args.driver).run()
 
 
 if __name__ == "__main__":

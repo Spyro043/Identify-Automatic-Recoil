@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[('kmNet.cp312-win_amd64.pyd', '.')],
-    datas=[],
+    datas=[('WEBUI', 'WEBUI')],
     hiddenimports=['kmNet', 'dxcam', 'comtypes', 'serial'],
     hookspath=[],
     hooksconfig={},
