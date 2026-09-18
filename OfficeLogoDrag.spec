@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[('kmNet.cp312-win_amd64.pyd', '.')],
     datas=[],
-    hiddenimports=['kmNet', 'dxcam', 'comtypes'],
+    hiddenimports=['kmNet', 'dxcam', 'comtypes', 'serial'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -32,7 +32,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=True,
+    uac_admin=False,
 )
 coll = COLLECT(
     exe,

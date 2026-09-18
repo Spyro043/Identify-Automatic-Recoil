@@ -2,11 +2,9 @@ import argparse
 import ctypes
 import json
 import math
-import queue
 import sys
 import threading
 import time
-from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -37,26 +35,6 @@ def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
-
-
-def is_admin() -> bool:
-    try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
-        return False
-
-
-def relaunch_as_admin_if_needed() -> bool:
-    if is_admin():
-        return False
-    if not getattr(sys, "frozen", False):
-        return False
-
-    params = " ".join(f'"{arg}"' for arg in sys.argv[1:])
-    result = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-    if result <= 32:
-        raise RuntimeError("无法申请管理员权限，请右键以管理员身份运行。")
-    return True
 
 
 def tune_process_for_capture() -> None:
@@ -137,14 +115,61 @@ class KmboxNetMouse:
         pass
 
 
+class MakcuMouse:
+    def __init__(self, port: str, baudrate: int) -> None:
+        self.port = port
+        self.baudrate = baudrate
+        self.serial: Any | None = None
+
+    def connect(self) -> None:
+        import serial
+
+        if not self.port.upper().startswith("COM") or not self.port[3:].isdigit():
+            raise ValueError("马克盒子串口应填写 COM 号，例如 COM3。")
+        if self.baudrate not in (115200, 4000000):
+            raise ValueError("马克盒子波特率应为 115200 或 4000000。")
+        try:
+            self.serial = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=1)
+            self.serial.reset_input_buffer()
+            self.serial.write(b".version()\r")
+            if b"km." not in self.serial.read_until(b">>> "):
+                raise RuntimeError("马克盒子没有响应，请检查 COM 口及设备波特率。")
+        except Exception:
+            self.close()
+            raise
+
+    def right_down(self) -> None:
+        pass
+
+    def right_up(self) -> None:
+        pass
+
+    def move_relative(self, dx: int, dy: int) -> None:
+        if dx or dy:
+            self.serial.write(f".move({int(dx)},{int(dy)})\r".encode("ascii"))
+            if not self.serial.read_until(b">>> ").endswith(b">>> "):
+                raise RuntimeError("马克盒子移动命令无响应，请检查串口连接。")
+
+    def is_left_down(self) -> bool:
+        return is_left_down()
+
+    def close(self) -> None:
+        if self.serial is not None:
+            self.serial.close()
+            self.serial = None
+
+
 class Settings:
     def __init__(self, config_dir: Path) -> None:
         self.config_dir = config_dir
         self.path = config_dir / "settings.json"
         self.data = {
+            "device": "KMBOXNET",
             "ip": "192.168.2.188",
             "uid": "",
             "port": "8338",
+            "makcu_port": "COM3",
+            "makcu_baudrate": "115200",
             "threshold": 0.86,
             "region_left": 1518,
             "region_top": 926,
@@ -178,7 +203,7 @@ class OfficeLogoDragEngine:
         self.settings = settings
         self.log = logger
         self.stop_event = threading.Event()
-        self.mouse: DryRunMouse | KmboxNetMouse | None = None
+        self.mouse: DryRunMouse | KmboxNetMouse | MakcuMouse | None = None
         self.trajectories: list[dict[str, Any]] = []
         self.templates: list[Template] = []
 
@@ -191,8 +216,17 @@ class OfficeLogoDragEngine:
     def run(self, execute: bool) -> None:
         self.templates = load_templates(self.config_dir)
         self.trajectories = load_trajectories(self.config_dir)
-        self.mouse = KmboxNetMouse(ip=str(self.settings["ip"]), port=str(self.settings["port"]), uid=str(self.settings["uid"])) if execute else DryRunMouse()
+        if not execute:
+            self.mouse = DryRunMouse()
+        elif str(self.settings["device"]).upper() == "MAKCU":
+            self.mouse = MakcuMouse(str(self.settings["makcu_port"]), int(self.settings["makcu_baudrate"]))
+        elif str(self.settings["device"]).upper() == "KMBOXNET":
+            self.mouse = KmboxNetMouse(ip=str(self.settings["ip"]), port=str(self.settings["port"]), uid=str(self.settings["uid"]))
+        else:
+            raise ValueError("设备类型应填写 KMBOXNET 或 MAKCU。")
         self.mouse.connect()
+        if execute:
+            self.log("DEVICE|CONNECTED")
         self.log(f"已加载 {len(self.templates)} 张识别图片，{len(self.trajectories)} 条轨迹。")
         self.status("已启动，等待识别右下角 Logo")
 
@@ -482,7 +516,7 @@ def pattern_at(trajectory: dict[str, Any], seconds: float, scale: float) -> tupl
     return x * scale, y * scale
 
 
-def play_while_buttons_down(mouse: KmboxNetMouse | DryRunMouse, steps: list[tuple[int, int, float]], stop_event: threading.Event) -> None:
+def play_while_buttons_down(mouse: KmboxNetMouse | MakcuMouse | DryRunMouse, steps: list[tuple[int, int, float]], stop_event: threading.Event) -> None:
     index = 0
     while not stop_event.is_set() and is_right_down() and is_left_down():
         dx, dy, delay = steps[index]
@@ -498,36 +532,8 @@ def play_while_buttons_down(mouse: KmboxNetMouse | DryRunMouse, steps: list[tupl
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
-WM_DESTROY = 0x0002
-WM_COMMAND = 0x0111
-WM_TIMER = 0x0113
-WM_CLOSE = 0x0010
-WM_SETFONT = 0x0030
-EM_SETSEL = 0x00B1
-EM_REPLACESEL = 0x00C2
-WS_OVERLAPPEDWINDOW = 0x00CF0000
-WS_VISIBLE = 0x10000000
-WS_CHILD = 0x40000000
-WS_BORDER = 0x00800000
-WS_VSCROLL = 0x00200000
-WS_TABSTOP = 0x00010000
-ES_AUTOHSCROLL = 0x0080
-ES_AUTOVSCROLL = 0x0040
-ES_MULTILINE = 0x0004
-ES_READONLY = 0x0800
-BS_PUSHBUTTON = 0x00000000
-SW_SHOW = 5
-COLOR_WINDOW = 5
-IDC_ARROW = 32512
 VK_LBUTTON = 0x01
 VK_RBUTTON = 0x02
-
-ID_SAVE = 1001
-ID_REFRESH = 1002
-ID_DRY = 1003
-ID_START = 1004
-ID_STOP = 1005
-ID_RECORD = 1006
 
 
 class POINT(ctypes.Structure):
@@ -563,357 +569,15 @@ def export_recorded_trajectory(config_dir: Path, name: str, path_steps: list[dic
     json_path.write_text(json.dumps(item, ensure_ascii=False, indent=2), encoding="utf-8")
     return json_path
 
-WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_longlong, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
-
-
-class WNDCLASS(ctypes.Structure):
-    _fields_ = [
-        ("style", wintypes.UINT),
-        ("lpfnWndProc", WNDPROC),
-        ("cbClsExtra", ctypes.c_int),
-        ("cbWndExtra", ctypes.c_int),
-        ("hInstance", wintypes.HINSTANCE),
-        ("hIcon", wintypes.HANDLE),
-        ("hCursor", wintypes.HANDLE),
-        ("hbrBackground", wintypes.HANDLE),
-        ("lpszMenuName", wintypes.LPCWSTR),
-        ("lpszClassName", wintypes.LPCWSTR),
-    ]
-
-
-class MSG(ctypes.Structure):
-    _fields_ = [
-        ("hwnd", wintypes.HWND),
-        ("message", wintypes.UINT),
-        ("wParam", wintypes.WPARAM),
-        ("lParam", wintypes.LPARAM),
-        ("time", wintypes.DWORD),
-        ("pt", wintypes.POINT),
-    ]
-
-
-class NativeApp:
-    def __init__(self) -> None:
-        self.config_dir = app_dir() / "CONFIG"
-        self.settings_store = Settings(self.config_dir)
-        self.settings = self.settings_store.load()
-        self.engine: OfficeLogoDragEngine | None = None
-        self.worker: threading.Thread | None = None
-        self.record_worker: threading.Thread | None = None
-        self.log_queue: queue.Queue[str] = queue.Queue()
-        self.hwnd: int | None = None
-        self.edits: dict[str, int] = {}
-        self.files_box: int | None = None
-        self.log_box: int | None = None
-        self.status_box: int | None = None
-        self._wndproc = WNDPROC(self._handle_message)
-
-    def run(self) -> None:
-        hinstance = kernel32.GetModuleHandleW(None)
-        class_name = "OfficeLogoDragWindow"
-        wc = WNDCLASS()
-        wc.lpfnWndProc = self._wndproc
-        wc.hInstance = hinstance
-        wc.hCursor = user32.LoadCursorW(None, IDC_ARROW)
-        wc.hbrBackground = COLOR_WINDOW + 1
-        wc.lpszClassName = class_name
-        user32.RegisterClassW(ctypes.byref(wc))
-        self.hwnd = user32.CreateWindowExW(
-            0,
-            class_name,
-            "公司 Logo 自动拖动工具",
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            180,
-            120,
-            780,
-            740,
-            None,
-            None,
-            hinstance,
-            None,
-        )
-        self._create_controls()
-        user32.SetTimer(self.hwnd, 1, 200, None)
-        user32.ShowWindow(self.hwnd, SW_SHOW)
-        self.refresh_files()
-        self.log("程序已就绪，请把轨迹 JSON 和 bmp 图片放入 CONFIG。")
-        self.log("当前权限：" + ("管理员" if is_admin() else "普通用户"))
-
-        msg = MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-
-    def _handle_message(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
-        if msg == WM_COMMAND:
-            command_id = int(wparam) & 0xFFFF
-            if command_id == ID_SAVE:
-                self.save_settings()
-            elif command_id == ID_REFRESH:
-                self.refresh_files()
-            elif command_id == ID_DRY:
-                self.start(False)
-            elif command_id == ID_START:
-                self.start(True)
-            elif command_id == ID_STOP:
-                self.stop()
-            elif command_id == ID_RECORD:
-                self.start_recording()
-            return 0
-        if msg == WM_TIMER:
-            self._drain_logs()
-            return 0
-        if msg in (WM_CLOSE, WM_DESTROY):
-            self.stop()
-            user32.DestroyWindow(hwnd)
-            user32.PostQuitMessage(0)
-            return 0
-        return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
-
-    def _create_controls(self) -> None:
-        self._label("KMBOXNET 连接", 20, 14, 160, 22)
-        self._entry("IP", "ip", 20, 44)
-        self._entry("UID", "uid", 390, 44)
-        self._entry("PORT", "port", 20, 82)
-
-        self._label("识别与轨迹", 20, 126, 160, 22)
-        self._entry("匹配阈值", "threshold", 20, 156)
-        self._entry("左X", "region_left", 390, 156)
-        self._entry("上Y", "region_top", 20, 194)
-        self._entry("右X", "region_right", 390, 194)
-        self._entry("下Y", "region_bottom", 20, 232)
-        self._entry("轨迹缩放", "scale", 390, 232)
-        self._entry("轨迹间隔ms", "tick_ms", 20, 270)
-        self._entry("灵敏度", "sensitivity", 390, 270)
-
-        self._button("保存配置", ID_SAVE, 20, 314, 100, 30)
-        self._button("刷新CONFIG", ID_REFRESH, 130, 314, 120, 30)
-        self._button("试运行", ID_DRY, 260, 314, 90, 30)
-        self._button("连接并启动", ID_START, 360, 314, 130, 30)
-        self._button("停止", ID_STOP, 500, 314, 90, 30)
-
-        self._label("轨迹录制", 20, 356, 120, 20)
-        self._entry("轨迹名", "record_name", 20, 380)
-        self._button("开始录制", ID_RECORD, 390, 380, 110, 28)
-
-        self._label("当前状态", 20, 422, 120, 20)
-        self.status_box = self._text_box(20, 446, 720, 34, readonly=True)
-        self._set_text(self.status_box, "未启动")
-
-        self._label("CONFIG 文件", 20, 490, 140, 20)
-        self.files_box = self._text_box(20, 514, 720, 58, readonly=True)
-        self._label("运行日志", 20, 582, 100, 20)
-        self.log_box = self._text_box(20, 606, 720, 42, readonly=True)
-
-    def _label(self, text: str, x: int, y: int, w: int, h: int) -> int:
-        return user32.CreateWindowExW(0, "STATIC", text, WS_CHILD | WS_VISIBLE, x, y, w, h, self.hwnd, None, None, None)
-
-    def _entry(self, label: str, key: str, x: int, y: int) -> None:
-        self._label(label, x, y + 4, 105, 22)
-        hwnd = user32.CreateWindowExW(
-            0,
-            "EDIT",
-            str(self.settings.get(key, "")),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
-            x + 110,
-            y,
-            220,
-            24,
-            self.hwnd,
-            None,
-            None,
-            None,
-        )
-        self.edits[key] = hwnd
-
-    def _button(self, text: str, command_id: int, x: int, y: int, w: int, h: int) -> int:
-        return user32.CreateWindowExW(
-            0,
-            "BUTTON",
-            text,
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-            x,
-            y,
-            w,
-            h,
-            self.hwnd,
-            command_id,
-            None,
-            None,
-        )
-
-    def _text_box(self, x: int, y: int, w: int, h: int, readonly: bool) -> int:
-        style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL
-        if readonly:
-            style |= ES_READONLY
-        return user32.CreateWindowExW(0, "EDIT", "", style, x, y, w, h, self.hwnd, None, None, None)
-
-    def _get_text(self, hwnd: int) -> str:
-        length = user32.GetWindowTextLengthW(hwnd)
-        buffer = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, buffer, length + 1)
-        return buffer.value
-
-    def _set_text(self, hwnd: int, text: str) -> None:
-        user32.SetWindowTextW(hwnd, text)
-
-    def _append_text(self, hwnd: int, text: str) -> None:
-        length = user32.GetWindowTextLengthW(hwnd)
-        user32.SendMessageW(hwnd, EM_SETSEL, length, length)
-        user32.SendMessageW(hwnd, EM_REPLACESEL, False, text)
-
-    def read_settings(self) -> dict[str, Any]:
-        values = {key: self._get_text(hwnd).strip() for key, hwnd in self.edits.items() if key != "record_name"}
-        for key in ("threshold", "scale", "sensitivity"):
-            values[key] = float(values[key])
-        for key in ("region_left", "region_top", "region_right", "region_bottom", "tick_ms"):
-            values[key] = int(values[key])
-        values["scan_interval"] = float(self.settings.get("scan_interval", 0.2))
-        values["lost_after_seconds"] = float(self.settings.get("lost_after_seconds", 0.8))
-        return values
-
-    def save_settings(self) -> None:
-        try:
-            self.settings = self.read_settings()
-            self.settings_store.save(self.settings)
-            self.log("Settings saved.")
-        except Exception as exc:
-            self.error(str(exc))
-
-    def refresh_files(self) -> None:
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        bmps = sorted(path.name for path in self.config_dir.glob("*.bmp"))
-        jsons = sorted(path.name for path in self.config_dir.glob("*.json") if path.name.lower() != "settings.json")
-        lines = [
-            f"目录：{self.config_dir}",
-            "轨迹JSON：" + (", ".join(jsons) if jsons else "暂无轨迹 JSON"),
-            "识别图片：" + (", ".join(bmps) if bmps else "暂无 bmp 图片"),
-        ]
-        if self.files_box:
-            self._set_text(self.files_box, "\r\n".join(lines))
-
-    def start(self, execute: bool) -> None:
-        if self.worker and self.worker.is_alive():
-            self.log("Already running.")
-            return
-        try:
-            self.save_settings()
-            self.refresh_files()
-            self.engine = OfficeLogoDragEngine(self.config_dir, self.settings, self.log)
-            self.worker = threading.Thread(target=self._run_engine, args=(execute,), daemon=True)
-            self.worker.start()
-            self.log("已连接 KMBOXNET 并启动。" if execute else "已启动试运行模式。")
-            self.set_status("已启动，等待识别右下角 Logo")
-        except Exception as exc:
-            self.error(str(exc))
-
-    def _run_engine(self, execute: bool) -> None:
-        try:
-            if self.engine:
-                self.engine.run(execute)
-        except Exception as exc:
-            self.log(f"错误：{exc}")
-            self.set_status(f"错误：{exc}")
-
-    def stop(self) -> None:
-        if self.engine:
-            self.engine.stop()
-        self.log("正在停止。")
-        self.set_status("已停止")
-
-    def start_recording(self) -> None:
-        if self.record_worker and self.record_worker.is_alive():
-            self.log("录制已经在进行中。")
-            return
-        name_hwnd = self.edits.get("record_name")
-        name = self._get_text(name_hwnd).strip() if name_hwnd else ""
-        if not name:
-            self.error("请先填写轨迹名，例如 ASD。")
-            return
-        self.record_worker = threading.Thread(target=self._record_trajectory, args=(name,), daemon=True)
-        self.record_worker.start()
-
-    def _record_trajectory(self, name: str) -> None:
-        try:
-            self.log(f"准备录制轨迹：{name}。请按住左键开始拖动，松开左键自动保存。")
-            self.set_status(f"录制准备中：{name}，等待左键按下")
-
-            while not is_left_down():
-                time.sleep(0.005)
-
-            previous_x, previous_y = get_cursor_pos()
-            previous_time = time.perf_counter()
-            steps: list[dict[str, float]] = []
-            self.log(f"开始录制：{name}")
-            self.set_status(f"正在录制：{name}，松开左键保存")
-
-            while is_left_down():
-                time.sleep(0.005)
-                current_x, current_y = get_cursor_pos()
-                now = time.perf_counter()
-                dx = current_x - previous_x
-                dy = current_y - previous_y
-                delay = max(0.001, now - previous_time)
-                if dx or dy:
-                    steps.append({"dx": dx, "dy": dy, "delay": round(delay, 4)})
-                    previous_x, previous_y = current_x, current_y
-                    previous_time = now
-
-            if not steps:
-                self.log(f"录制取消：{name}，没有检测到鼠标移动。")
-                self.set_status("录制取消，没有检测到鼠标移动")
-                return
-
-            saved_path = export_recorded_trajectory(self.config_dir, name, steps)
-            self.log(f"录制完成：{name}，已保存 {len(steps)} 步到 {saved_path.name}。")
-            self.set_status(f"录制完成：{name}，已导出 {saved_path.name}")
-            self.refresh_files()
-        except Exception as exc:
-            self.log(f"录制错误：{exc}")
-            self.set_status(f"录制错误：{exc}")
-
-    def log(self, message: str) -> None:
-        if message.startswith("STATUS|"):
-            self.log_queue.put(message)
-        else:
-            self.log_queue.put(f"[{time.strftime('%H:%M:%S')}] {message}\r\n")
-
-    def set_status(self, message: str) -> None:
-        self.log_queue.put("STATUS|" + message)
-
-    def _drain_logs(self) -> None:
-        if not self.log_box:
-            return
-        while True:
-            try:
-                message = self.log_queue.get_nowait()
-                if message.startswith("STATUS|"):
-                    if self.status_box:
-                        self._set_text(self.status_box, message.removeprefix("STATUS|"))
-                else:
-                    self._append_text(self.log_box, message)
-            except queue.Empty:
-                break
-
-    def error(self, message: str) -> None:
-        user32.MessageBoxW(self.hwnd, message, "公司 Logo 自动拖动工具", 0x10)
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nogui", action="store_true", help="run without UI")
-    parser.add_argument("--execute", action="store_true", help="connect to KMBOXNET in nogui mode")
+    parser.add_argument("--execute", action="store_true", help="connect to configured device in nogui mode")
     return parser.parse_args()
 
 
 def main() -> None:
     tune_process_for_capture()
-    try:
-        if relaunch_as_admin_if_needed():
-            return
-    except Exception:
-        pass
-
     args = parse_args()
     if args.nogui:
         config_dir = app_dir() / "CONFIG"
@@ -921,7 +585,9 @@ def main() -> None:
         engine = OfficeLogoDragEngine(config_dir, settings, print)
         engine.run(args.execute)
     else:
-        NativeApp().run()
+        from ui import App
+
+        App(sys.modules[__name__]).run()
 
 
 if __name__ == "__main__":
