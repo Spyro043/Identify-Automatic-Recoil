@@ -5,7 +5,6 @@ import shutil
 import sys
 import threading
 import time
-import webbrowser
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -87,6 +86,8 @@ class App:
                     raise RuntimeError("未获得管理员权限，DD 驱动未加载")
                 if hasattr(self, "server"):
                     threading.Thread(target=self.server.shutdown, daemon=True).start()
+                    if hasattr(self, "window"):
+                        threading.Timer(.2, self.window.destroy).start()
                 else:
                     self.relaunched = True
                 return
@@ -269,12 +270,14 @@ class App:
                 if self.engine:
                     self.engine.stop()
                 self.disconnect()
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                threading.Timer(.2, self.window.destroy).start()
             else:
                 raise ValueError("未知操作")
             return self.state()
 
     def run(self):
+        import webview
+
         if self.mode == "driver":
             try:
                 self.connect()
@@ -350,11 +353,16 @@ class App:
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         url = f"http://127.0.0.1:{self.server.server_port}/"
-        threading.Timer(0.3, lambda: webbrowser.open(url)).start()
+        server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        server_thread.start()
+        self.window = webview.create_window("自动识别压枪控制台", url, width=1320, height=850,
+                                            min_size=(960, 640), background_color="#0a101b")
         try:
-            self.server.serve_forever()
+            webview.start(gui="edgechromium")
         finally:
             if self.engine:
                 self.engine.stop()
             self.disconnect()
+            self.server.shutdown()
+            server_thread.join(timeout=2)
             self.server.server_close()

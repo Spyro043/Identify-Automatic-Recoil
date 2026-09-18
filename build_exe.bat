@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 python -m pip install -r requirements.txt
 python -m pip install pyinstaller
-python -m PyInstaller --noconfirm --clean --windowed --name OfficeLogoDrag --hidden-import kmNet --hidden-import dxcam --hidden-import comtypes --hidden-import serial --add-binary "kmNet.cp312-win_amd64.pyd;." main.py
+python -m PyInstaller --noconfirm --clean --windowed --name OfficeLogoDrag --hidden-import kmNet --hidden-import dxcam --hidden-import comtypes --hidden-import serial --hidden-import webview --add-binary "kmNet.cp312-win_amd64.pyd;." main.py
 if not exist "dist\OfficeLogoDrag\CONFIG" mkdir "dist\OfficeLogoDrag\CONFIG"
 xcopy /E /I /Y "CONFIG" "dist\OfficeLogoDrag\CONFIG"
 if not exist "dist\OfficeLogoDrag\WEBUI" mkdir "dist\OfficeLogoDrag\WEBUI"

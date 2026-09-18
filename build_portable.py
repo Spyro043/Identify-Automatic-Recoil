@@ -28,8 +28,8 @@ with tempfile.TemporaryDirectory() as tmp:
     (staged / "config" / "app_settings.json").write_text(json.dumps({key: original[key] for key in keys if key in original}), encoding="utf-8")
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
-        "--name", "OfficeLogoDrag-Portable", "--hidden-import", "kmNet", "--hidden-import", "dxcam",
-        "--hidden-import", "comtypes", "--hidden-import", "serial",
+        "--name", "OfficeLogoDrag-Desktop", "--hidden-import", "kmNet", "--hidden-import", "dxcam",
+        "--hidden-import", "comtypes", "--hidden-import", "serial", "--hidden-import", "webview",
         "--add-binary", f"{root / 'kmNet.cp312-win_amd64.pyd'};.",
         "--add-binary", f"{dll};dd", "--add-data", f"{root / 'WEBUI'};WEBUI",
         "--add-data", f"{staged};vector", str(root / "main.py")

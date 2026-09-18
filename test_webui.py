@@ -1,5 +1,8 @@
 import tempfile
 import unittest
+import sys
+import json
+import urllib.request
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -54,6 +57,23 @@ class WebUiTests(unittest.TestCase):
                 fake.DD_movR.assert_called_once_with(3, 4)
             main._DD_DLL = None
             main._DD_INITIALIZED = False
+
+    def test_ui_opens_native_window_and_stops_server_on_close(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(main, "app_dir", return_value=Path(tmp)):
+            app = webui.App(main)
+            native = Mock()
+
+            def check_window(**kwargs):
+                self.assertEqual(kwargs["gui"], "edgechromium")
+                url = native.create_window.call_args.args[1]
+                with urllib.request.urlopen(url + "api/state") as response:
+                    self.assertIsNone(json.load(response)["mode"])
+
+            native.start.side_effect = check_window
+            with patch.dict(sys.modules, {"webview": native}):
+                app.run()
+            native.create_window.assert_called_once()
+            native.start.assert_called_once()
 
 
 if __name__ == "__main__":

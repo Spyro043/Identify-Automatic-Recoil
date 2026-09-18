@@ -1,15 +1,15 @@
 ﻿# 自动识别压枪控制台
 
-Windows 桌面程序，启动后在本机浏览器打开 WebUI。支持 KMBOXNET、马克盒子 MAKCU 和本机 DD 驱动。
+Windows 桌面程序，在独立窗口中显示 WebUI，不会打开浏览器。支持 KMBOXNET、马克盒子 MAKCU 和本机 DD 驱动。
 
 ## 启动
 
-双击 `OfficeLogoDrag.exe`，在弹出的页面中选择：
+双击 `OfficeLogoDrag.exe`，在软件窗口中选择：
 
 - **内核驱动**：便携版 EXE 内含本机已授权的 `dd63330.dll`，选择后尝试连接并初始化 DD。
 - **硬件设备**：再选 KMBOXNET 或 MAKCU。此模式不加载 DD DLL。
 
-连接成功后可测试移动，确认鼠标实际移动。然后启动识别；识别到模板图案时，按住右键和左键执行对应轨迹。“试运行”只识别、不发送移动。页面右上角有“退出程序”。WebUI 仅绑定本机 `127.0.0.1`，关闭浏览器标签不会退出后台进程，请使用“退出程序”。
+连接成功后可测试移动，确认鼠标实际移动。然后启动识别；识别到模板图案时，按住右键和左键执行对应轨迹。“试运行”只识别、不发送移动。窗口右上角有“退出程序”，关闭软件窗口也会结束程序。
 
 DD DLL 在进程内保持加载，选择过内核模式后若要保证纯硬件运行，请退出并重新打开 EXE，再选择硬件模式。
 
@@ -32,4 +32,4 @@ python -m pip install -r requirements.txt
 
 主程序在 `dist/OfficeLogoDrag/OfficeLogoDrag.exe`，同目录的 `WEBUI` 和 `CONFIG` 文件夹要一同保留。`--nogui` 可以从命令行运行识别；加 `--execute` 才向配置的设备发送移动。
 
-需要单 EXE 时，用 `python build_portable.py`。脚本会从本机已购买的 Vector 目录读取 DD DLL 和模板，构建 `dist/OfficeLogoDrag-Portable.exe`；这个 EXE 仅供授权范围内使用。运行后可编辑的数据会存放在 EXE 旁边的 `CONFIG`。
+需要单 EXE 时，用 `python build_portable.py`。脚本会从本机已购买的 Vector 目录读取 DD DLL 和模板，构建 `dist/OfficeLogoDrag-Desktop.exe`；这个 EXE 仅供授权范围内使用。运行后可编辑的数据会存放在 EXE 旁边的 `CONFIG`。

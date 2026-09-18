@@ -3,5 +3,6 @@ build/
 dist/
 *.spec.bak
 OfficeLogoDrag-Portable.spec
+OfficeLogoDrag-Desktop.spec
 CONFIG/*.bmp
 CONFIG/*.json
