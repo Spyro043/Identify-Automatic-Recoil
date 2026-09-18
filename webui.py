@@ -261,6 +261,7 @@ class App:
                     self.settings.update({"region_left": x, "region_top": y,
                                           "region_right": x + round(float(original.get("roiW", .11)) * width),
                                           "region_bottom": y + round(float(original.get("roiH", .09)) * height),
+                                          "reference_width": width, "reference_height": height,
                                           "threshold": float(original.get("matchThreshold", .55)),
                                           "scan_interval": float(original.get("detectInterval", .083333333)),
                                           "tick_ms": 4, "scale": float(original.get("scaleFactor", 1)), "match_mode": "vector"})

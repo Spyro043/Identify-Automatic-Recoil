@@ -12,6 +12,11 @@ import vector_compat
 
 
 class WebUiTests(unittest.TestCase):
+    def test_vector_region_uses_current_screen_resolution(self):
+        settings = {"match_mode": "vector", "region_left": 2025, "region_top": 1247,
+                    "region_right": 2307, "region_bottom": 1377}
+        self.assertEqual(main.capture_region(settings, 1920, 1080), (1519, 935, 1730, 1033))
+
     def test_mode_isolates_dd_and_power_scales_steps(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(main, "app_dir", return_value=Path(tmp)):
             app = webui.App(main)

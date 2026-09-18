@@ -17,7 +17,7 @@ button{white-space:nowrap}header .row{flex:none}
 <section class="card"><h2>运行日志</h2><div id="log" class="log"></div></section>
 </aside><div>
 <section class="card"><div class="row"><div><h2>模板库 <span id="count" class="pill">0</span></h2><div class="sub">每个模板独立保存力度、方向和分段调整</div></div><button onclick="importVector()">导入本机 Vector 模板</button></div><div class="split" style="margin-top:16px"><div><input id="search" placeholder="搜索名称或标识" oninput="renderList()"><div class="templates" id="templateList" style="margin-top:9px"></div><p class="sub">识别图片须与模板标识同名，放在 CONFIG 文件夹。</p></div><div><div class="row"><h2 id="editTitle">选择模板</h2><button onclick="newProfile()">新建模板</button></div><div id="editor"></div></div></div></section>
-<section class="card"><div class="row"><h2>识别与全局设置</h2><button class="primary" onclick="saveSettings()">保存设置</button></div><div class="grid four" id="globalFields"></div><p class="sub">区域坐标对应屏幕左上 (X,Y) 与右下 (X,Y)。修改后重新启动识别生效。</p></section>
+<section class="card"><div class="row"><h2>识别与全局设置</h2><button class="primary" onclick="saveSettings()">保存设置</button></div><div class="grid four" id="globalFields"></div><p class="sub">区域坐标对应屏幕左上 (X,Y) 与右下 (X,Y)。Vector 导入的坐标会按当前屏幕分辨率自动换算。修改后重新启动识别生效。</p></section>
 </div></main>
 <div class="overlay" id="modeDialog"><div class="dialog"><h1>选择运行模式</h1><div class="muted">启动时选择输出方式。只有内核驱动模式会加载 DD DLL 并初始化驱动。</div><div class="choices"><button class="choice" onclick="chooseMode('driver')"><strong>内核驱动</strong><span>使用本机已授权的 DD 驱动 DLL</span></button><button class="choice" onclick="chooseMode('hardware')"><strong>硬件设备</strong><span>KMBOXNET / 马克盒子；不加载 DD 驱动</span></button></div></div></div>
 <div id="toast" class="notice" hidden></div>

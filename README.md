@@ -32,4 +32,4 @@ python -m pip install -r requirements.txt
 
 主程序在 `dist/OfficeLogoDrag/OfficeLogoDrag.exe`，同目录的 `WEBUI` 和 `CONFIG` 文件夹要一同保留。`--nogui` 可以从命令行运行识别；加 `--execute` 才向配置的设备发送移动。
 
-需要单 EXE 时，用 `python build_portable.py`。脚本会从本机已购买的 Vector 目录读取 DD DLL 和模板，构建 `dist/OfficeLogoDrag-Desktop.exe`；这个 EXE 仅供授权范围内使用。运行后可编辑的数据会存放在 EXE 旁边的 `CONFIG`。
+需要单 EXE 时，用 `python build_portable.py`。脚本会从本机已购买的 Vector 目录读取 DD DLL 和模板，构建 `dist/OfficeLogoDrag-Desktop-v2.exe`；这个 EXE 仅供授权范围内使用。运行后可编辑的数据会存放在 EXE 旁边的 `CONFIG`。Vector 导入的识别区域会按当前屏幕分辨率自动换算。

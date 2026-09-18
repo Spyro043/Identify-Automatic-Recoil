@@ -248,6 +248,8 @@ class Settings:
             "scale": 1.0,
             "sensitivity": 1.0,
             "match_mode": "original",
+            "reference_width": 2560,
+            "reference_height": 1440,
         }
 
     def load(self) -> dict[str, Any]:
@@ -402,6 +404,23 @@ def find_trajectory(trajectories: list[dict[str, Any]], key: str) -> dict[str, A
     return None
 
 
+def capture_region(settings: dict[str, Any], screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
+    region = tuple(int(settings[f"region_{side}"]) for side in ("left", "top", "right", "bottom"))
+    if settings.get("match_mode") == "vector":
+        reference_width = int(settings.get("reference_width", 2560))
+        reference_height = int(settings.get("reference_height", 1440))
+        if reference_width <= 0 or reference_height <= 0:
+            raise RuntimeError("Vector 参考分辨率无效。")
+        region = (round(region[0] * screen_width / reference_width),
+                  round(region[1] * screen_height / reference_height),
+                  round(region[2] * screen_width / reference_width),
+                  round(region[3] * screen_height / reference_height))
+    left, top, right, bottom = region
+    if not (0 <= left < right <= screen_width and 0 <= top < bottom <= screen_height):
+        raise RuntimeError(f"识别区域 {region} 超出当前屏幕 {screen_width}x{screen_height}，请调整识别区域。")
+    return region
+
+
 class ScreenCapture:
     def __init__(self, settings: dict[str, Any], logger: Callable[[str], None]) -> None:
         self.settings = settings
@@ -415,13 +434,12 @@ class ScreenCapture:
         if dxcam is None:
             raise RuntimeError("DXGI 截图模块 dxcam 不可用，无法启动。")
 
-        left = int(self.settings["region_left"])
-        top = int(self.settings["region_top"])
-        right = int(self.settings["region_right"])
-        bottom = int(self.settings["region_bottom"])
-        if right <= left or bottom <= top:
-            raise RuntimeError("识别区域坐标无效，请确认右侧坐标大于左侧、下方坐标大于上方。")
-        self.region = (left, top, right, bottom)
+        width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+        self.region = capture_region(self.settings, width, height)
+        if self.settings.get("match_mode") == "vector" and (width, height) != (
+            int(self.settings.get("reference_width", 2560)), int(self.settings.get("reference_height", 1440))
+        ):
+            self.log(f"识别区域已适配当前屏幕 {width}x{height}：{self.region}")
 
         self._start_camera()
         first_frame = self._wait_for_frame(timeout_seconds=2.0)
